@@ -12,7 +12,7 @@ spec:
             sh "pwd"
             sh "oc whoami"
             git url: 'https://github.com/jacobborella/myproject.git'
-            writeFile file: '/tmp/workspace/ab-pipeline-demo-sample-pipeline/maven_openshift_settings.xml', text: '''<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd"> 
+            writeFile file: 'maven_openshift_settings.xml', text: '''<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd"> 
               <mirrors>
                 <mirror>
                   <id>local-oc-repo</id>
@@ -23,7 +23,6 @@ spec:
               </mirrors>
             </settings>'''
             def mvnCmd = "mvn -s maven_openshift_settings.xml"
-            //def mvnCmd = "mvn"
             sh "${mvnCmd} package -DskipTests=true"
             def v = version()
 
@@ -32,20 +31,20 @@ spec:
             sh "cp target/myproject-*.jar oc-build/deployments/"
         
             // clean up. keep the image stream
-            sh "oc project jbl-dev"
-            sh "oc delete bc,dc,svc,route,secret --all -n jbl-dev"
+            sh "oc project noo-dev"
+            sh "oc delete bc,dc,svc,route,secret --all -n noo-dev"
             // create build. override the exit code since it complains about exising imagestream
-            sh "oc new-build --name=myproject --image-stream=redhat-openjdk18-openshift --binary=true --labels=app=myproject -n jbl-dev || true"
+            sh "oc new-build --name=myproject --image-stream=redhat-openjdk18-openshift --binary=true --labels=app=myproject -n noo-dev || true"
             // build image
-            sh "oc start-build myproject --from-dir=oc-build --wait=true -n jbl-dev"
+            sh "oc start-build myproject --from-dir=oc-build --wait=true -n noo-dev"
             // deploy image
-            sh "oc new-app myproject:latest -n jbl-dev"
-            sh "oc expose svc/myproject -n jbl-dev"
+            sh "oc new-app myproject:latest -n noo-dev"
+            sh "oc expose svc/myproject -n noo-dev"
             
            stage 'Deploy AB'
             sh "oc project jbl-prod"
             // tag for prod
-            sh "oc tag jbl-dev/myproject:latest jbl-prod/myproject:${v}"
+            sh "oc tag noo-dev/myproject:latest jbl-prod/myproject:${v}"
             // clean up. keep the imagestream
         //    sh "oc delete bc,dc,svc,route,secret --selector='app=myproject' -n jbl-prod || true"
             // deploy prod image
