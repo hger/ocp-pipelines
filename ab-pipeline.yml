@@ -8,16 +8,25 @@ spec:
     jenkinsPipelineStrategy:
       jenkinsfile: |-
         node('maven') {
-            //def mvnCmd = "mvn -s nexus_openshift_settings.xml"
-            def mvnCmd = "mvn"
-
             stage 'Build'
-            git url: 'https://github.com/jacobborella/myproject.git'
             sh "pwd"
             sh "oc whoami"
+            git url: 'https://github.com/jacobborella/myproject.git'
+            writeFile file: '/tmp/workspace/ab-pipeline-demo-sample-pipeline/maven_openshift_settings.xml', text: '''<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd"> 
+              <mirrors>
+                <mirror>
+                  <id>local-oc-repo</id>
+                  <name>Local Openshift Repository</name>
+                  <url>http://nexus-nexus.192.168.99.100.nip.io/nexus/content/groups/public</url>
+                  <mirrorOf>*</mirrorOf>
+                </mirror>
+              </mirrors>
+            </settings>'''
+            def mvnCmd = "mvn -s maven_openshift_settings.xml"
+            //def mvnCmd = "mvn"
             sh "${mvnCmd} package -DskipTests=true"
             def v = version()
-        
+
             stage 'Deploy DEV'
             sh "rm -rf oc-build && mkdir -p oc-build/deployments"
             sh "cp target/myproject-*.jar oc-build/deployments/"
@@ -58,13 +67,18 @@ spec:
             sh "echo build number ${BUILD_NUMBER}"
             def n = "$BUILD_NUMBER"
             sh "oc new-app myproject:${v} --name=myproject-${n} -n jbl-prod"
-        //    sh "oc expose svc/kitchensink -n jbl-prod"
             openshiftVerifyDeployment depCfg: 'myproject-' + n, namespace: 'jbl-prod'
-            shell_cmd = "oc set route-backends myproject " +
-                        currentDeploy + "=50 " +
-                        "myproject-${n}=50 -n jbl-prod"
-            echo shell_cmd
-            sh shell_cmd
+            if('unknown' == currentDeploy) {
+                //if no previous deploy exists this is the first, expose single svc
+                sh "oc expose svc/myproject-${n} --name myproject -n jbl-prod"
+                return
+            } else {
+                //else deploy exists split it
+                shell_cmd = "oc set route-backends myproject " +
+                            currentDeploy + "=50 " +
+                            "myproject-${n}=50 -n jbl-prod"
+                sh shell_cmd
+            }
             
             stage 'Deploy PROD'
             input message: "Promote to PROD?", ok: "Promote"
