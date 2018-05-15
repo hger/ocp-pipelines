@@ -1,13 +1,15 @@
 #!/bin/bash
 # Use -n for nexus repo
 #     -p for project prefix
+#     -u for user to access project
 
-while getopts n:p: option
+while getopts n:p:u: option
 do
 case "${option}"
 in
 n) NEXUS=${OPTARG};;
 p) PREFIX=${OPTARG};;
+u) OCP_USER=${OPTARG};;
 esac
 done
 
@@ -15,6 +17,12 @@ if [ -z "$PREFIX" ]
 then
   PREFIX=jbl
 fi
+
+if [ -z "$OCP_USER" ]
+then
+  OCP_USER=developer
+fi
+
 
 rm ab-pipeline.yml
 cp ab-pipeline.yml.orig ab-pipeline.yml
@@ -40,8 +48,11 @@ sed -i -- 's/jbl-dev/'"$PREFIX"'-dev/g' ab-pipeline.yml
 sed -i -- 's/jbl-prod/'"$PREFIX"'-prod/g' ab-pipeline.yml
 
 oc new-project $PREFIX-ab-pipeline-demo
+oc policy add-role-to-user edit $OCP_USER -n $PREFIX-ab-pipeline-demo
 oc create -f ab-pipeline.yml
 oc new-project $PREFIX-dev
+oc policy add-role-to-user edit $OCP_USER -n $PREFIX-dev
 oc policy add-role-to-user edit system:serviceaccount:$PREFIX-ab-pipeline-demo:jenkins
 oc new-project $PREFIX-prod
+oc policy add-role-to-user view $OCP_USER -n $PREFIX-prod
 oc policy add-role-to-user edit system:serviceaccount:$PREFIX-ab-pipeline-demo:jenkins
