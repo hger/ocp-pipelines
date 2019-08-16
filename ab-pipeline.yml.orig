@@ -24,7 +24,7 @@ spec:
               steps {
                   sh "pwd"
                   sh "oc whoami"
-                  git url: 'https://github.com/jacobborella/myproject.git'
+                  git url: 'https://github.com/hger/myproject.git'
                   sh "${mvnCmd} package -DskipTests=true"
                   script {
                     v = version()
