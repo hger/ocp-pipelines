@@ -49,6 +49,7 @@ sed -i -- 's/jbl-prod/'"$PREFIX"'-prod/g' ab-pipeline.yml
 
 oc new-project $PREFIX-ab-pipeline-demo
 oc policy add-role-to-user edit $OCP_USER -n $PREFIX-ab-pipeline-demo
+oc new-app jenkins-ephemeral
 oc create -f ab-pipeline.yml
 oc new-project $PREFIX-dev
 oc policy add-role-to-user edit $OCP_USER -n $PREFIX-dev

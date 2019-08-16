@@ -7,71 +7,107 @@ spec:
     type: "JenkinsPipeline"
     jenkinsPipelineStrategy:
       jenkinsfile: |-
-        node('maven') {
-            stage 'Build'
-            sh "pwd"
-            sh "oc whoami"
-            git url: 'https://github.com/jacobborella/myproject.git'
-            sh "${mvnCmd} package -DskipTests=true"
-            def v = version()
-
-            stage 'Deploy DEV'
-            sh "rm -rf oc-build && mkdir -p oc-build/deployments"
-            sh "cp target/myproject-*.jar oc-build/deployments/"
-        
-            // clean up. keep the image stream
-            sh "oc project jbl-dev"
-            sh "oc delete bc,dc,svc,route,secret --all -n jbl-dev"
-            // create build. override the exit code since it complains about exising imagestream
-            sh "oc new-build --name=myproject --image-stream=redhat-openjdk18-openshift:1.3 --binary=true --labels=app=myproject -n jbl-dev || true"
-            // build image
-            sh "oc start-build myproject --from-dir=oc-build --wait=true -n jbl-dev"
-            // deploy image
-            sh "oc new-app myproject:latest -n jbl-dev"
-            sh "oc expose svc/myproject -n jbl-dev"
-            
-           stage 'Deploy AB'
-            sh "oc project jbl-prod"
-            // tag for prod
-            sh "oc tag jbl-dev/myproject:latest jbl-prod/myproject:${v}"
-            // clean up. keep the imagestream
-        //    sh "oc delete bc,dc,svc,route,secret --selector='app=myproject' -n jbl-prod || true"
-            // deploy prod image
-            //find currently deployed app
-            DCS = sh (
-                script: "oc get dc -n jbl-prod",
-                returnStdout: true
-            ).trim()
-            currentDeploy = 'unknown'
-            DCS_ARRAY = DCS.split('\n')
-            for (i = 0; i <DCS_ARRAY.length; i++) {
-                if(DCS_ARRAY[i].startsWith('myproject')) {
-                    currentDeploy = DCS_ARRAY[i].split(" ")[0]
-                }
+        def mvnCmd = "mvn"
+        def v = "unknown"
+        def n = "unknown"
+        pipeline {
+          agent {
+            node {
+              label 'maven'
             }
-            echo "currentDeploy: " + currentDeploy
+          }
+          options {
+            timeout(time: 20, unit: 'MINUTES')
+          }
+          stages {
+            stage('Build') {
+              steps {
+                  sh "pwd"
+                  sh "oc whoami"
+                  git url: 'https://github.com/jacobborella/myproject.git'
+                  sh "${mvnCmd} package -DskipTests=true"
+                  script {
+                    v = version()
+                  }
+              }
+            }
         
-            //find next number of build
-            sh "echo build number ${BUILD_NUMBER}"
-            def n = "$BUILD_NUMBER"
-            sh "oc new-app myproject:${v} --name=myproject-${n} -n jbl-prod"
-            openshiftVerifyDeployment depCfg: 'myproject-' + n, namespace: 'jbl-prod'
-            if('unknown' == currentDeploy) {
-                //if no previous deploy exists this is the first, expose single svc
-                sh "oc expose svc/myproject-${n} --name myproject -n jbl-prod"
-                return
-            } else {
-                //else deploy exists split it
-                shell_cmd = "oc set route-backends myproject " +
-                            currentDeploy + "=50 " +
-                            "myproject-${n}=50 -n jbl-prod"
-                sh shell_cmd
+            stage('Deploy DEV') {
+              steps {
+                  sh "rm -rf oc-build && mkdir -p oc-build/deployments"
+                  sh "cp target/myproject-*.jar oc-build/deployments/"
+            
+                  // clean up. keep the image stream
+                  sh "oc project jbl-dev"
+                  sh "oc delete bc,dc,svc,route,secret --all -n jbl-dev"
+                  // create build. override the exit code since it complains about exising imagestream
+                  sh "oc new-build --name=myproject --image-stream=redhat-openjdk18-openshift:1.3 --binary=true --labels=app=myproject -n jbl-dev || true"
+                  // build image
+                  sh "oc start-build myproject --from-dir=oc-build --wait=true -n jbl-dev"
+                  // deploy image
+                  sh "oc new-app myproject:latest -n jbl-dev"
+                  sh "oc expose svc/myproject -n jbl-dev"
+              }
             }
             
-            stage 'Deploy PROD'
-            input message: "Promote to PROD?", ok: "Promote"
-            sh "oc set route-backends myproject myproject-${n}=100 -n jbl-prod"
-            sh "oc delete bc,dc,svc --selector='app=" + currentDeploy + "' -n jbl-prod"
+            stage('Deploy AB') {
+              steps {
+                  sh "oc project jbl-prod"
+                  // tag for prod
+                  sh "oc tag jbl-dev/myproject:latest jbl-prod/myproject:${v}"
+                  // clean up. keep the imagestream
+                  // deploy prod image
+                  //find currently deployed app
+                  script {
+                      DCS = sh (
+                          script: "oc get dc -n jbl-prod",
+                          returnStdout: true
+                      ).trim()
+                      currentDeploy = 'unknown'
+                      DCS_ARRAY = DCS.split('\n')
+                      for (i = 0; i <DCS_ARRAY.length; i++) {
+                        if(DCS_ARRAY[i].startsWith('myproject')) {
+                          currentDeploy = DCS_ARRAY[i].split(" ")[0]
+                        }
+                      }
+                      echo "currentDeploy: " + currentDeploy
+                
+                      //find next number of build
+                      sh "echo build number ${BUILD_NUMBER}"
+                      n = "$BUILD_NUMBER"
+                      sh "oc new-app myproject:${v} --name=myproject-${n} -n jbl-prod"
+                      def depCfg = "myproject-${n}"
+                      openshift.withCluster() {
+                                        openshift.withProject("jbl-prod") {
+                                          openshift.selector("dc", depCfg).related('pods').untilEach(1) {
+                                                return (it.object().status.phase == "Running")
+                                        }                                
+                                            
+                                        }
+                                    }
+                      if('unknown' == currentDeploy) {
+                          //if no previous deploy exists this is the first, expose single svc
+                          sh "oc expose svc/myproject-${n} --name myproject -n jbl-prod"
+                          return
+                      } else {
+                          //else deploy exists split it
+                          shell_cmd = "oc set route-backends myproject " +
+                                      currentDeploy + "=50 " +
+                                      "myproject-${n}=50 -n jbl-prod"
+                          sh shell_cmd
+                      }
+                  }
+              }
+            }
+            
+            stage('Deploy PROD') {
+              steps {
+                  input message: "Promote to PROD?", ok: "Promote"
+                  sh "oc set route-backends myproject myproject-${n}=100 -n jbl-prod"
+                  sh "oc delete bc,dc,svc --selector='app=" + currentDeploy + "' -n jbl-prod"
+              }
+            }
+          }
         }
         
         def version() {
