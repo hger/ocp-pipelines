@@ -40,8 +40,8 @@ then
               </mirrors>
             </settings>'''
             def mvnCmd = \"mvn -s maven_openshift_settings.xml\"" -cx ab-pipeline.yml
-else
-  ex -sc "15i|            def mvnCmd = \"mvn\"" -cx ab-pipeline.yml
+#else
+#  ex -sc "15i|            def mvnCmd = \"mvn\"" -cx ab-pipeline.yml
 fi
 
 sed -i -- 's/jbl-dev/'"$PREFIX"'-dev/g' ab-pipeline.yml
